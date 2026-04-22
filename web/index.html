@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Bird</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            min-height: 100vh; 
+            background: #333; 
+        }
+        canvas { border: 4px solid #fff; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <canvas id="game" width="320" height="480"></canvas>
+    <script type="module">
+        import init, { create_game } from './pkg/flappybird.js';
+
+        async function run() {
+            await init();
+
+            const canvas = document.getElementById('game');
+            const ctx = canvas.getContext('2d');
+            const game = create_game(320.0, 480.0);
+
+            function loop() {
+                game.tick();
+                game.render(ctx);
+                requestAnimationFrame(loop);
+            }
+
+            canvas.addEventListener('click', () => game.jump());
+            document.addEventListener('keydown', (e) => {
+                if (e.code === 'Space') {
+                    e.preventDefault();
+                    game.jump();
+                }
+            });
+
+            loop();
+        }
+
+        run();
+    </script>
+</body>
+</html>
