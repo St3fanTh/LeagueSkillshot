@@ -7,9 +7,22 @@ League of Legends inspired skillshot game featuring Ezreal.
 - Q or Click - Shoot skill shot
 - Enemies have 1 HP each
 
-## Build & Run
+## Build
+
 ```bash
-cd web && python -m http.server 8080
+cargo build --target web --out-dir web/pkg
 ```
 
-Then open http://localhost:8080
+Or with wasm-pack:
+```bash
+~/.cargo/bin/wasm-pack build --target web --out-dir web/pkg
+```
+
+## Run
+
+```bash
+cd web
+python -m http.server 9000
+```
+
+Then open http://localhost:9000
