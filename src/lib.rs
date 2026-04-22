@@ -5,27 +5,38 @@ use web_sys::CanvasRenderingContext2d;
 pub struct Game {
     width: f64,
     height: f64,
-    bird_y: f64,
-    bird_velocity: f64,
-    pipes: Vec<Pipe>,
+    player_x: f64,
+    player_y: f64,
+    skill_shots: Vec<SkillShot>,
+    enemies: Vec<Enemy>,
+    keys_pressed: Vec<String>,
     score: u32,
     game_over: bool,
     frame_count: u32,
 }
 
 #[wasm_bindgen]
-pub struct Pipe {
+pub struct SkillShot {
     x: f64,
-    gap_y: f64,
+    y: f64,
+    vx: f64,
+    vy: f64,
+    active: bool,
 }
 
-const GRAVITY: f64 = 0.25;
-const LIFT: f64 = -4.5;
-const PIPE_SPEED: f64 = 2.0;
-const PIPE_WIDTH: f64 = 50.0;
-const PIPE_GAP: f64 = 120.0;
-const BIRD_X: f64 = 50.0;
-const BIRD_RADIUS: f64 = 12.0;
+#[wasm_bindgen]
+pub struct Enemy {
+    x: f64,
+    y: f64,
+    hp: i32,
+    active: bool,
+}
+
+const PLAYER_SPEED: f64 = 3.0;
+const SHOT_SPEED: f64 = 8.0;
+const SHOT_COOLDOWN: u32 = 30;
+const ENEMY_SPAWN_RATE: u32 = 120;
+const PLAYER_SIZE: f64 = 30.0;
 
 #[wasm_bindgen]
 impl Game {
@@ -34,9 +45,11 @@ impl Game {
         Game {
             width,
             height,
-            bird_y: height / 2.0,
-            bird_velocity: 0.0,
-            pipes: Vec::new(),
+            player_x: width / 2.0,
+            player_y: height - 80.0,
+            skill_shots: Vec::new(),
+            enemies: Vec::new(),
+            keys_pressed: Vec::new(),
             score: 0,
             game_over: false,
             frame_count: 0,
@@ -44,22 +57,72 @@ impl Game {
     }
 
     #[wasm_bindgen]
-    pub fn jump(&mut self) {
-        if !self.game_over {
-            self.bird_velocity = LIFT;
-        } else {
+    pub fn key_down(&mut self, key: String) {
+        if !self.keys_pressed.contains(&key) {
+            self.keys_pressed.push(key);
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn key_up(&mut self, key: String) {
+        self.keys_pressed.retain(|k| k != &key);
+    }
+
+    #[wasm_bindgen]
+    pub fn shoot(&mut self) {
+        if self.game_over {
             self.reset();
+            return;
+        }
+
+        if self.frame_count % SHOT_COOLDOWN == 0 {
+            self.skill_shots.push(SkillShot {
+                x: self.player_x,
+                y: self.player_y - PLAYER_SIZE / 2.0,
+                vx: 0.0,
+                vy: -SHOT_SPEED,
+                active: true,
+            });
         }
     }
 
     #[wasm_bindgen]
     pub fn reset(&mut self) {
-        self.bird_y = self.height / 2.0;
-        self.bird_velocity = 0.0;
-        self.pipes.clear();
+        self.player_x = self.width / 2.0;
+        self.player_y = self.height - 80.0;
+        self.skill_shots.clear();
+        self.enemies.clear();
         self.score = 0;
         self.game_over = false;
         self.frame_count = 0;
+    }
+
+    fn move_player(&mut self) {
+        for key in &self.keys_pressed {
+            match key.as_str() {
+                "a" | "ArrowLeft" => {
+                    if self.player_x > PLAYER_SIZE {
+                        self.player_x -= PLAYER_SPEED;
+                    }
+                }
+                "d" | "ArrowRight" => {
+                    if self.player_x < self.width - PLAYER_SIZE {
+                        self.player_x += PLAYER_SPEED;
+                    }
+                }
+                "w" | "ArrowUp" => {
+                    if self.player_y > PLAYER_SIZE {
+                        self.player_y -= PLAYER_SPEED;
+                    }
+                }
+                "s" | "ArrowDown" => {
+                    if self.player_y < self.height - PLAYER_SIZE {
+                        self.player_y += PLAYER_SPEED;
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     #[wasm_bindgen]
@@ -68,77 +131,125 @@ impl Game {
             return;
         }
 
-        self.bird_velocity += GRAVITY;
-        self.bird_y += self.bird_velocity;
+        self.move_player();
 
-        if self.bird_y < BIRD_RADIUS || self.bird_y > self.height - BIRD_RADIUS {
-            self.game_over = true;
-            return;
+        for shot in self.skill_shots.iter_mut() {
+            if shot.active {
+                shot.x += shot.vx;
+                shot.y += shot.vy;
+                if shot.y < 0.0 || shot.x < 0.0 || shot.x > self.width {
+                    shot.active = false;
+                }
+            }
         }
+        self.skill_shots.retain(|s| s.active);
 
-        if self.frame_count % 100 == 0 {
-            let gap_y = 150.0 + (self.height - 300.0).random() as f64;
-            self.pipes.push(Pipe {
-                x: self.width,
-                gap_y,
+        if self.frame_count % ENEMY_SPAWN_RATE == 0 {
+            let start_x = (self.width - 40.0) * js_sys::Math::random() + 20.0;
+            self.enemies.push(Enemy {
+                x: start_x,
+                y: -20.0,
+                hp: 1,
+                active: true,
             });
         }
 
-        for pipe in self.pipes.iter_mut() {
-            pipe.x -= PIPE_SPEED;
-
-            let in_pipe_x = pipe.x < BIRD_X + BIRD_RADIUS && pipe.x + PIPE_WIDTH > BIRD_X - BIRD_RADIUS;
-            let in_gap = self.bird_y > pipe.gap_y - BIRD_RADIUS && self.bird_y < pipe.gap_y + PIPE_GAP + BIRD_RADIUS;
-
-            if in_pipe_x && !in_gap {
-                self.game_over = true;
-                return;
+        for enemy in self.enemies.iter_mut() {
+            if enemy.active {
+                enemy.y += 1.5;
+                if enemy.y > self.height + 20.0 {
+                    enemy.active = false;
+                }
             }
         }
 
-        self.pipes.retain(|p| p.x + PIPE_WIDTH > 0.0);
-
-        for pipe in self.pipes.iter() {
-            if pipe.x + PIPE_WIDTH < BIRD_X - BIRD_RADIUS {
-                self.score += 1;
+        for shot in self.skill_shots.iter_mut() {
+            for enemy in self.enemies.iter_mut() {
+                if shot.active && enemy.active {
+                    let dx = shot.x - enemy.x;
+                    let dy = shot.y - enemy.y;
+                    if dx * dx < 900.0 && dy * dy < 900.0 {
+                        enemy.hp -= 1;
+                        shot.active = false;
+                        if enemy.hp <= 0 {
+                            enemy.active = false;
+                            self.score += 10;
+                        }
+                    }
+                }
             }
         }
 
+        for enemy in &self.enemies {
+            if enemy.active {
+                let dx = self.player_x - enemy.x;
+                let dy = self.player_y - enemy.y;
+                if dx * dx < 900.0 && dy * dy < 900.0 {
+                    self.game_over = true;
+                    return;
+                }
+            }
+        }
+
+        self.enemies.retain(|e| e.active);
         self.frame_count += 1;
     }
 
     #[wasm_bindgen]
     pub fn render(&self, context: &CanvasRenderingContext2d) {
-        context.set_fill_style(&JsValue::from_str("#70c5ce"));
+        context.set_fill_style(&JsValue::from_str("#1a1a2e"));
         context.fill_rect(0.0, 0.0, self.width, self.height);
 
-        context.set_fill_style(&JsValue::from_str("#ded895"));
-        context.fill_rect(0.0, self.height - 20.0, self.width, 20.0);
-
-        context.set_fill_style(&JsValue::from_str("#e0b028"));
-        context.begin_path();
-        context.arc(BIRD_X, self.bird_y, BIRD_RADIUS, 0.0, std::f64::consts::PI * 2.0).unwrap();
-        context.fill();
-        context.set_fill_style(&JsValue::from_str("#fff"));
-        context.begin_path();
-        context.arc(BIRD_X + 4.0, self.bird_y - 4.0, 4.0, 0.0, std::f64::consts::PI * 2.0).unwrap();
-        context.fill();
-
-        context.set_fill_style(&JsValue::from_str("#73bf2e"));
-        for pipe in &self.pipes {
-            context.fill_rect(pipe.x, 0.0, PIPE_WIDTH, pipe.gap_y);
-            context.fill_rect(pipe.x, pipe.gap_y + PIPE_GAP, PIPE_WIDTH, self.height - pipe.gap_y - PIPE_GAP);
+        context.set_fill_style(&JsValue::from_str("#16213e"));
+for i in 0..5 {
+                context.fill_rect(0.0, self.height / 5.0 * (i as f64) + 10.0, self.width, 2.0);
         }
 
-        context.set_font("24px sans-serif");
+        context.set_fill_style(&JsValue::from_str("#0f3460"));
+        context.fill_rect(0.0, self.height - 40.0, self.width, 40.0);
+
+        let ezreal_color = if self.game_over { "#888" } else { "#00b4d8" };
+        context.set_fill_style(&JsValue::from_str(ezreal_color));
+        context.begin_path();
+        context.rect(
+            self.player_x - PLAYER_SIZE / 2.0,
+            self.player_y - PLAYER_SIZE / 2.0,
+            PLAYER_SIZE,
+            PLAYER_SIZE,
+        );
+        context.fill();
+
+        context.set_fill_style(&JsValue::from_str("#e94560"));
+        for enemy in &self.enemies {
+            if enemy.active {
+                context.begin_path();
+                context.arc(enemy.x, enemy.y, 15.0, 0.0, std::f64::consts::PI * 2.0).unwrap();
+                context.fill();
+            }
+        }
+
+        context.set_fill_style(&JsValue::from_str("#90e0ef"));
+        context.set_stroke_style(&JsValue::from_str("#00b4d8"));
+        context.set_line_width(2.0);
+        for shot in &self.skill_shots {
+            if shot.active {
+                context.begin_path();
+                context.arc(shot.x, shot.y, 5.0, 0.0, std::f64::consts::PI * 2.0).unwrap();
+                context.stroke();
+            }
+        }
+
+        context.set_font("16px sans-serif");
         context.set_fill_style(&JsValue::from_str("#fff"));
-        context.fill_text(&format!("{}", self.score), 20.0, 35.0).unwrap();
+        context.fill_text(&format!("Score: {}", self.score), 10.0, 25.0).unwrap();
 
         if self.game_over {
-            context.set_font("48px sans-serif");
-            context.fill_text("Game Over!", self.width / 2.0 - 120.0, self.height / 2.0).unwrap();
-            context.set_font("20px sans-serif");
-            context.fill_text("Click to restart", self.width / 2.0 - 70.0, self.height / 2.0 + 40.0).unwrap();
+            context.set_font("32px sans-serif");
+            context.set_fill_style(&JsValue::from_str("#e94560"));
+            context.fill_text("Game Over!", self.width / 2.0 - 90.0, self.height / 2.0).unwrap();
+            context.set_font("16px sans-serif");
+            context.set_fill_style(&JsValue::from_str("#fff"));
+            context.fill_text("Press Q or Click to restart", self.width / 2.0 - 110.0, self.height / 2.0 + 35.0).unwrap();
         }
     }
 
@@ -150,16 +261,6 @@ impl Game {
     #[wasm_bindgen]
     pub fn is_game_over(&self) -> bool {
         self.game_over
-    }
-}
-
-trait Random {
-    fn random(&self) -> f64;
-}
-
-impl Random for f64 {
-    fn random(&self) -> f64 {
-        js_sys::Math::random() * self
     }
 }
 

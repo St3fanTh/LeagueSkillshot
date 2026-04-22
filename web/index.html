@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flappy Bird</title>
+    <title>League Skillshot - Ezreal</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -11,13 +11,32 @@
             justify-content: center; 
             align-items: center; 
             min-height: 100vh; 
-            background: #333; 
+            background: #0a0a15; 
+            font-family: 'Segoe UI', sans-serif;
         }
-        canvas { border: 4px solid #fff; border-radius: 4px; }
+        .game-container {
+            position: relative;
+        }
+        canvas { 
+            border: 3px solid #0f3460; 
+            border-radius: 8px;
+            box-shadow: 0 0 30px rgba(0, 180, 216, 0.3);
+        }
+        .controls {
+            margin-top: 15px;
+            color: #90e0ef;
+            text-align: center;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
-    <canvas id="game" width="320" height="480"></canvas>
+    <div class="game-container">
+        <canvas id="game" width="400" height="600"></canvas>
+        <div class="controls">
+            WASD / Arrows to Move | Q to Shoot | Click to Shoot
+        </div>
+    </div>
     <script type="module">
         import init, { create_game } from './pkg/flappybird.js';
 
@@ -26,7 +45,7 @@
 
             const canvas = document.getElementById('game');
             const ctx = canvas.getContext('2d');
-            const game = create_game(320.0, 480.0);
+            const game = create_game(400.0, 600.0);
 
             function loop() {
                 game.tick();
@@ -34,12 +53,20 @@
                 requestAnimationFrame(loop);
             }
 
-            canvas.addEventListener('click', () => game.jump());
+            canvas.addEventListener('mousedown', () => game.shoot());
+            
             document.addEventListener('keydown', (e) => {
-                if (e.code === 'Space') {
-                    e.preventDefault();
-                    game.jump();
+                game.key_down(e.key);
+                if (e.key === 'q' || e.key === 'Q') {
+                    game.shoot();
                 }
+                if (e.key === ' ') {
+                    e.preventDefault();
+                }
+            });
+
+            document.addEventListener('keyup', (e) => {
+                game.key_up(e.key);
             });
 
             loop();
