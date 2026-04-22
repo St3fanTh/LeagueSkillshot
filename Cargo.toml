@@ -2,6 +2,9 @@
 name = "league-skillshot"
 version = "0.1.0"
 edition = "2021"
+description = "League of Legends inspired skillshot game featuring Ezreal"
+license = "MIT"
+repository = "https://github.com/example/league-skillshot"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

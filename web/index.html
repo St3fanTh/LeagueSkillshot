@@ -6,19 +6,19 @@
     <title>League Skillshot - Ezreal</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
-            min-height: 100vh; 
-            background: #0a0a15; 
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #0a0a15;
             font-family: 'Segoe UI', sans-serif;
         }
         .game-container {
             position: relative;
         }
-        canvas { 
-            border: 3px solid #0f3460; 
+        canvas {
+            border: 3px solid #0f3460;
             border-radius: 8px;
             box-shadow: 0 0 30px rgba(0, 180, 216, 0.3);
         }
@@ -34,40 +34,149 @@
     <div class="game-container">
         <canvas id="game" width="400" height="600"></canvas>
         <div class="controls">
-            WASD / Arrows to Move | Q to Shoot | Click to Shoot
+            Right-Click to Move | Q to Shoot
         </div>
     </div>
     <script type="module">
-        import init, { create_game } from './pkg/league_skillshot.js';
+        import init, { create_player, Skillshot, Enemy, check_collision } from './pkg/league_skillshot.js';
 
         async function run() {
             await init();
 
             const canvas = document.getElementById('game');
             const ctx = canvas.getContext('2d');
-            const game = create_game(400.0, 600.0);
+            const player = create_player(200.0, 550.0);
+
+            const skillshots = [];
+            const enemies = [];
+            let score = 0;
+            let keys = {};
+
+            const PLAYER_SPEED = 4.0;
+            const ENEMY_SPAWN_RATE = 60;
+            let frameCount = 0;
+
+            function spawnEnemy() {
+                const x = Math.random() * 360 + 20;
+                enemies.push(new Enemy(x, -20.0));
+            }
+
+            let facingY = 0.0;
+            let facingX = 0.0;
+
+            function handleKeyDown(e) {
+                keys[e.key.toLowerCase()] = true;
+                if (e.key.toLowerCase() === 'q') {
+                    if (facingX === 0.0 && facingY === 0.0) {
+                        facingY = -1.0;
+                    }
+                    const targetX = player.get_x() + facingX * 100.0;
+                    const targetY = player.get_y() + facingY * 100.0;
+                    const shot = new Skillshot(player.get_x(), player.get_y(), targetX, targetY);
+                    skillshots.push(shot);
+                }
+            }
+
+            function handleKeyUp(e) {
+                keys[e.key.toLowerCase()] = false;
+            }
+
+            function updatePlayer() {
+                let dx = 0, dy = 0;
+                if (keys['w'] || keys['arrowup']) dy -= PLAYER_SPEED;
+                if (keys['s'] || keys['arrowdown']) dy += PLAYER_SPEED;
+                if (keys['a'] || keys['arrowleft']) dx -= PLAYER_SPEED;
+                if (keys['d'] || keys['arrowright']) dx += PLAYER_SPEED;
+                
+                if (dx !== 0 || dy !== 0) {
+                    facingX = dx;
+                    facingY = dy;
+                    const newX = Math.max(15.0, Math.min(385.0, player.get_x() + dx));
+                    const newY = Math.max(15.0, Math.min(585.0, player.get_y() + dy));
+                    player.set_target(newX, newY);
+                }
+                player.update(PLAYER_SPEED);
+            }
+
+            function updateGame() {
+                frameCount++;
+                if (frameCount % ENEMY_SPAWN_RATE === 0) {
+                    spawnEnemy();
+                }
+
+                for (let shot of skillshots) {
+                    shot.update();
+                }
+
+                for (let enemy of enemies) {
+                    enemy.update();
+                }
+
+                for (let i = skillshots.length - 1; i >= 0; i--) {
+                    if (!skillshots[i].is_active()) {
+                        skillshots.splice(i, 1);
+                        continue;
+                    }
+                    for (let j = enemies.length - 1; j >= 0; j--) {
+                        if (enemies[j].is_active() && check_collision(skillshots[i], enemies[j])) {
+                            enemies[j].take_damage();
+                            skillshots[i].active = false;
+                            score++;
+                            break;
+                        }
+                    }
+                }
+
+                skillshots.filter(s => !s.active).forEach((_, i) => skillshots.splice(i, 1));
+                enemies.filter(e => !e.active).forEach((_, i) => enemies.splice(i, 1));
+            }
+
+            function renderGame() {
+                ctx.fillStyle = '#16213e';
+                ctx.fillRect(0.0, 0.0, 400.0, 600.0);
+                
+                ctx.fillStyle = '#0f3460';
+                ctx.fillRect(0.0, 560.0, 400.0, 40.0);
+                
+                ctx.fillStyle = '#90e0ef';
+                ctx.font = '16px monospace';
+                ctx.fillText(`Score: ${score}`, 10.0, 25.0);
+
+                for (let enemy of enemies) {
+                    enemy.render(ctx);
+                }
+                
+                for (let shot of skillshots) {
+                    shot.render(ctx);
+                }
+                
+                player.render(ctx);
+            }
 
             function loop() {
-                game.tick();
-                game.render(ctx);
+                updatePlayer();
+                updateGame();
+                renderGame();
                 requestAnimationFrame(loop);
             }
 
-            canvas.addEventListener('mousedown', () => game.shoot());
-            
-            document.addEventListener('keydown', (e) => {
-                game.key_down(e.key);
-                if (e.key === 'q' || e.key === 'Q') {
-                    game.shoot();
-                }
-                if (e.key === ' ') {
-                    e.preventDefault();
+            canvas.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+            });
+
+            canvas.addEventListener('mousedown', (e) => {
+                if (e.button === 2) {
+                    const rect = canvas.getBoundingClientRect();
+                    const scaleX = canvas.width / rect.width;
+                    const scaleY = canvas.height / rect.height;
+                    const targetX = (e.clientX - rect.left) * scaleX;
+                    const targetY = (e.clientY - rect.top) * scaleY;
+                    player.set_target(targetX, targetY);
                 }
             });
 
-            document.addEventListener('keyup', (e) => {
-                game.key_up(e.key);
-            });
+            window.addEventListener('keydown', handleKeyDown);
+            window.addEventListener('keyup', handleKeyUp);
 
             loop();
         }

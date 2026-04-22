@@ -1,22 +1,10 @@
 use wasm_bindgen::prelude::*;
 use web_sys::CanvasRenderingContext2d;
 
-#[wasm_bindgen]
-pub struct Game {
-    width: f64,
-    height: f64,
-    player_x: f64,
-    player_y: f64,
-    skill_shots: Vec<SkillShot>,
-    enemies: Vec<Enemy>,
-    keys_pressed: Vec<String>,
-    score: u32,
-    game_over: bool,
-    frame_count: u32,
-}
+const SKILLSHOT_SPEED: f64 = 12.0;
 
 #[wasm_bindgen]
-pub struct SkillShot {
+pub struct Skillshot {
     x: f64,
     y: f64,
     vx: f64,
@@ -25,246 +13,239 @@ pub struct SkillShot {
 }
 
 #[wasm_bindgen]
+impl Skillshot {
+    #[wasm_bindgen(constructor)]
+    pub fn new(x: f64, y: f64, target_x: f64, target_y: f64) -> Skillshot {
+        let dx = target_x - x;
+        let dy = target_y - y;
+        let dist = (dx * dx + dy * dy).sqrt();
+        let (vx, vy) = if dist > 0.0 {
+            ((dx / dist) * SKILLSHOT_SPEED, (dy / dist) * SKILLSHOT_SPEED)
+        } else {
+            (0.0, -SKILLSHOT_SPEED)
+        };
+        Skillshot { x, y, vx, vy, active: true }
+    }
+
+    pub fn get_x(&self) -> f64 {
+        self.x
+    }
+
+    pub fn get_y(&self) -> f64 {
+        self.y
+    }
+
+    pub fn get_vx(&self) -> f64 {
+        self.vx
+    }
+
+    pub fn get_vy(&self) -> f64 {
+        self.vy
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
+
+    pub fn update(&mut self) {
+        if !self.active {
+            return;
+        }
+        self.x += self.vx;
+        self.y += self.vy;
+        if self.x < 0.0 || self.x > 400.0 || self.y < 0.0 || self.y > 600.0 {
+            self.active = false;
+        }
+    }
+
+    pub fn render(&self, context: &CanvasRenderingContext2d) {
+        if !self.active {
+            return;
+        }
+        context.set_fill_style_str("#00ff88");
+        context.begin_path();
+        context.ellipse(self.x, self.y, 8.0, 4.0, self.vy.atan2(self.vx), 0.0, std::f64::consts::PI * 2.0).unwrap();
+        context.fill();
+    }
+}
+
+#[wasm_bindgen]
 pub struct Enemy {
     x: f64,
     y: f64,
+    vx: f64,
+    vy: f64,
     hp: i32,
     active: bool,
 }
 
-const PLAYER_SPEED: f64 = 3.0;
-const SHOT_SPEED: f64 = 8.0;
-const SHOT_COOLDOWN: u32 = 30;
-const ENEMY_SPAWN_RATE: u32 = 120;
-const PLAYER_SIZE: f64 = 30.0;
-
 #[wasm_bindgen]
-impl Game {
+impl Enemy {
     #[wasm_bindgen(constructor)]
-    pub fn new(width: f64, height: f64) -> Game {
-        Game {
-            width,
-            height,
-            player_x: width / 2.0,
-            player_y: height - 80.0,
-            skill_shots: Vec::new(),
-            enemies: Vec::new(),
-            keys_pressed: Vec::new(),
-            score: 0,
-            game_over: false,
-            frame_count: 0,
+    pub fn new(x: f64, y: f64) -> Enemy {
+        Enemy {
+            x,
+            y,
+            vx: 0.0,
+            vy: 1.5,
+            hp: 1,
+            active: true,
         }
     }
 
-    #[wasm_bindgen]
-    pub fn key_down(&mut self, key: String) {
-        if !self.keys_pressed.contains(&key) {
-            self.keys_pressed.push(key);
+    pub fn get_x(&self) -> f64 {
+        self.x
+    }
+
+    pub fn get_y(&self) -> f64 {
+        self.y
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
+
+    pub fn get_hp(&self) -> i32 {
+        self.hp
+    }
+
+    pub fn take_damage(&mut self) -> bool {
+        self.hp -= 1;
+        if self.hp <= 0 {
+            self.active = false;
         }
+        self.active
     }
 
-    #[wasm_bindgen]
-    pub fn key_up(&mut self, key: String) {
-        self.keys_pressed.retain(|k| k != &key);
-    }
-
-    #[wasm_bindgen]
-    pub fn shoot(&mut self) {
-        if self.game_over {
-            self.reset();
+    pub fn update(&mut self) {
+        if !self.active {
             return;
         }
-
-        if self.frame_count % SHOT_COOLDOWN == 0 {
-            self.skill_shots.push(SkillShot {
-                x: self.player_x,
-                y: self.player_y - PLAYER_SIZE / 2.0,
-                vx: 0.0,
-                vy: -SHOT_SPEED,
-                active: true,
-            });
+        self.x += self.vx;
+        self.y += self.vy;
+        if self.y > 620.0 {
+            self.active = false;
         }
     }
 
-    #[wasm_bindgen]
-    pub fn reset(&mut self) {
-        self.player_x = self.width / 2.0;
-        self.player_y = self.height - 80.0;
-        self.skill_shots.clear();
-        self.enemies.clear();
-        self.score = 0;
-        self.game_over = false;
-        self.frame_count = 0;
-    }
-
-    fn move_player(&mut self) {
-        for key in &self.keys_pressed {
-            match key.as_str() {
-                "a" | "ArrowLeft" => {
-                    if self.player_x > PLAYER_SIZE {
-                        self.player_x -= PLAYER_SPEED;
-                    }
-                }
-                "d" | "ArrowRight" => {
-                    if self.player_x < self.width - PLAYER_SIZE {
-                        self.player_x += PLAYER_SPEED;
-                    }
-                }
-                "w" | "ArrowUp" => {
-                    if self.player_y > PLAYER_SIZE {
-                        self.player_y -= PLAYER_SPEED;
-                    }
-                }
-                "s" | "ArrowDown" => {
-                    if self.player_y < self.height - PLAYER_SIZE {
-                        self.player_y += PLAYER_SPEED;
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    #[wasm_bindgen]
-    pub fn tick(&mut self) {
-        if self.game_over {
-            return;
-        }
-
-        self.move_player();
-
-        for shot in self.skill_shots.iter_mut() {
-            if shot.active {
-                shot.x += shot.vx;
-                shot.y += shot.vy;
-                if shot.y < 0.0 || shot.x < 0.0 || shot.x > self.width {
-                    shot.active = false;
-                }
-            }
-        }
-        self.skill_shots.retain(|s| s.active);
-
-        if self.frame_count % ENEMY_SPAWN_RATE == 0 {
-            let start_x = (self.width - 40.0) * js_sys::Math::random() + 20.0;
-            self.enemies.push(Enemy {
-                x: start_x,
-                y: -20.0,
-                hp: 1,
-                active: true,
-            });
-        }
-
-        for enemy in self.enemies.iter_mut() {
-            if enemy.active {
-                enemy.y += 1.5;
-                if enemy.y > self.height + 20.0 {
-                    enemy.active = false;
-                }
-            }
-        }
-
-        for shot in self.skill_shots.iter_mut() {
-            for enemy in self.enemies.iter_mut() {
-                if shot.active && enemy.active {
-                    let dx = shot.x - enemy.x;
-                    let dy = shot.y - enemy.y;
-                    if dx * dx < 900.0 && dy * dy < 900.0 {
-                        enemy.hp -= 1;
-                        shot.active = false;
-                        if enemy.hp <= 0 {
-                            enemy.active = false;
-                            self.score += 10;
-                        }
-                    }
-                }
-            }
-        }
-
-        for enemy in &self.enemies {
-            if enemy.active {
-                let dx = self.player_x - enemy.x;
-                let dy = self.player_y - enemy.y;
-                if dx * dx < 900.0 && dy * dy < 900.0 {
-                    self.game_over = true;
-                    return;
-                }
-            }
-        }
-
-        self.enemies.retain(|e| e.active);
-        self.frame_count += 1;
-    }
-
-    #[wasm_bindgen]
     pub fn render(&self, context: &CanvasRenderingContext2d) {
-        context.set_fill_style(&JsValue::from_str("#1a1a2e"));
-        context.fill_rect(0.0, 0.0, self.width, self.height);
-
-        context.set_fill_style(&JsValue::from_str("#16213e"));
-for i in 0..5 {
-                context.fill_rect(0.0, self.height / 5.0 * (i as f64) + 10.0, self.width, 2.0);
+        if !self.active {
+            return;
         }
-
-        context.set_fill_style(&JsValue::from_str("#0f3460"));
-        context.fill_rect(0.0, self.height - 40.0, self.width, 40.0);
-
-        let ezreal_color = if self.game_over { "#888" } else { "#00b4d8" };
-        context.set_fill_style(&JsValue::from_str(ezreal_color));
+        context.set_fill_style_str("#ff4757");
         context.begin_path();
-        context.rect(
-            self.player_x - PLAYER_SIZE / 2.0,
-            self.player_y - PLAYER_SIZE / 2.0,
-            PLAYER_SIZE,
-            PLAYER_SIZE,
-        );
+        context.arc(self.x, self.y, 12.0, 0.0, std::f64::consts::PI * 2.0).unwrap();
         context.fill();
-
-        context.set_fill_style(&JsValue::from_str("#e94560"));
-        for enemy in &self.enemies {
-            if enemy.active {
-                context.begin_path();
-                context.arc(enemy.x, enemy.y, 15.0, 0.0, std::f64::consts::PI * 2.0).unwrap();
-                context.fill();
-            }
-        }
-
-        context.set_fill_style(&JsValue::from_str("#90e0ef"));
-        context.set_stroke_style(&JsValue::from_str("#00b4d8"));
-        context.set_line_width(2.0);
-        for shot in &self.skill_shots {
-            if shot.active {
-                context.begin_path();
-                context.arc(shot.x, shot.y, 5.0, 0.0, std::f64::consts::PI * 2.0).unwrap();
-                context.stroke();
-            }
-        }
-
-        context.set_font("16px sans-serif");
-        context.set_fill_style(&JsValue::from_str("#fff"));
-        context.fill_text(&format!("Score: {}", self.score), 10.0, 25.0).unwrap();
-
-        if self.game_over {
-            context.set_font("32px sans-serif");
-            context.set_fill_style(&JsValue::from_str("#e94560"));
-            context.fill_text("Game Over!", self.width / 2.0 - 90.0, self.height / 2.0).unwrap();
-            context.set_font("16px sans-serif");
-            context.set_fill_style(&JsValue::from_str("#fff"));
-            context.fill_text("Press Q or Click to restart", self.width / 2.0 - 110.0, self.height / 2.0 + 35.0).unwrap();
-        }
-    }
-
-    #[wasm_bindgen]
-    pub fn get_score(&self) -> u32 {
-        self.score
-    }
-
-    #[wasm_bindgen]
-    pub fn is_game_over(&self) -> bool {
-        self.game_over
+        
+        context.set_stroke_style_str("#ff6b81");
+        context.begin_path();
+        context.arc(self.x, self.y, 12.0, 0.0, std::f64::consts::PI * 2.0).unwrap();
+        context.stroke();
     }
 }
 
 #[wasm_bindgen]
-pub fn create_game(width: f64, height: f64) -> Game {
-    Game::new(width, height)
+pub fn check_collision(skillshot: &Skillshot, enemy: &Enemy) -> bool {
+    if !skillshot.is_active() || !enemy.is_active() {
+        return false;
+    }
+
+    let sx = skillshot.get_x();
+    let sy = skillshot.get_y();
+    let ex = enemy.get_x();
+    let ey = enemy.get_y();
+
+    let rx = 8.0;
+    let ry = 4.0;
+    let enemy_radius = 12.0;
+
+    let angle = skillshot.get_vy().atan2(skillshot.get_vx());
+    let cos_a = angle.cos();
+    let sin_a = angle.sin();
+
+    let dx = ex - sx;
+    let dy = ey - sy;
+
+    let local_x = dx * cos_a + dy * sin_a;
+    let local_y = -dx * sin_a + dy * cos_a;
+
+    let closest_x = if local_x >= 0.0 { local_x.min(rx) } else { -(-local_x).min(rx) };
+    let closest_y = if local_y >= 0.0 { local_y.min(ry) } else { -(-local_y).min(ry) };
+
+    let dist_sq = (local_x - closest_x).powi(2) + (local_y - closest_y).powi(2);
+    dist_sq <= enemy_radius * enemy_radius
+}
+
+#[wasm_bindgen]
+pub struct Player {
+    x: f64,
+    y: f64,
+    target_x: f64,
+    target_y: f64,
+}
+
+#[wasm_bindgen]
+impl Player {
+    #[wasm_bindgen(constructor)]
+    pub fn new(x: f64, y: f64) -> Player {
+        Player {
+            x,
+            y,
+            target_x: x,
+            target_y: y,
+        }
+    }
+
+    pub fn get_x(&self) -> f64 {
+        self.x
+    }
+
+    pub fn get_y(&self) -> f64 {
+        self.y
+    }
+
+    #[wasm_bindgen]
+    pub fn set_target(&mut self, target_x: f64, target_y: f64) {
+        self.target_x = target_x;
+        self.target_y = target_y;
+    }
+
+    #[wasm_bindgen]
+    pub fn update(&mut self, speed: f64) {
+        let dx = self.target_x - self.x;
+        let dy = self.target_y - self.y;
+        let dist = (dx * dx + dy * dy).sqrt();
+
+        if dist > speed {
+            self.x += (dx / dist) * speed;
+            self.y += (dy / dist) * speed;
+        } else {
+            self.x = self.target_x;
+            self.y = self.target_y;
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn render(&self, context: &CanvasRenderingContext2d) {
+        context.set_fill_style_str("#16213e");
+        context.fill_rect(0.0, 0.0, 400.0, 600.0);
+
+        context.set_fill_style_str("#0f3460");
+        context.fill_rect(0.0, 560.0, 400.0, 40.0);
+
+        context.set_fill_style_str("#00b4d8");
+        context.begin_path();
+        context.arc(self.x, self.y, 15.0, 0.0, std::f64::consts::PI * 2.0).unwrap();
+        context.fill();
+
+        context.set_stroke_style_str("#90e0ef");
+        context.begin_path();
+        context.arc(self.x, self.y, 15.0, 0.0, std::f64::consts::PI * 2.0).unwrap();
+        context.stroke();
+    }
+}
+
+#[wasm_bindgen]
+pub fn create_player(x: f64, y: f64) -> Player {
+    Player::new(x, y)
 }
