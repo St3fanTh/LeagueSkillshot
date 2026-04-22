@@ -22,7 +22,9 @@ Or with wasm-pack:
 
 ```bash
 cd web
-python -m http.server 9000
+python3 -m http.server 9000
 ```
 
 Then open http://localhost:9000
+
+**Important:** Run from inside the `web` folder, not the root directory.
